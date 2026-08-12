@@ -11,6 +11,12 @@ using TaskFlow.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32 || jwtKey.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("Jwt:Key must be configured with a strong value of at least 32 characters.");
+}
+
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -29,7 +35,7 @@ builder.Services.AddAuthentication(o =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
         ClockSkew = TimeSpan.Zero
     };
 });
@@ -60,18 +66,55 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     var um = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
     var rm = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
     await db.Database.MigrateAsync();
+
     foreach (var role in new[] { "Admin", "User" })
-        if (!await rm.RoleExistsAsync(role)) await rm.CreateAsync(new IdentityRole(role));
-    if (await um.FindByEmailAsync("admin@taskflow.com") == null)
     {
-        var admin = new ApplicationUser { UserName = "admin@taskflow.com", Email = "admin@taskflow.com", FirstName = "Admin", LastName = "User", EmailConfirmed = true };
-        await um.CreateAsync(admin, "Admin@123");
-        await um.AddToRoleAsync(admin, "Admin");
+        if (!await rm.RoleExistsAsync(role))
+        {
+            await rm.CreateAsync(new IdentityRole(role));
+        }
+    }
+
+    // Optional local demo administrator. No default credential is compiled into the app.
+    if (app.Environment.IsDevelopment())
+    {
+        var demoAdminEmail = builder.Configuration["DemoAdmin:Email"];
+        var demoAdminPassword = builder.Configuration["DemoAdmin:Password"];
+
+        if (!string.IsNullOrWhiteSpace(demoAdminEmail) && !string.IsNullOrWhiteSpace(demoAdminPassword))
+        {
+            var existingAdmin = await um.FindByEmailAsync(demoAdminEmail);
+            if (existingAdmin == null)
+            {
+                var admin = new ApplicationUser
+                {
+                    UserName = demoAdminEmail,
+                    Email = demoAdminEmail,
+                    FirstName = "Demo",
+                    LastName = "Admin",
+                    EmailConfirmed = true
+                };
+
+                var createResult = await um.CreateAsync(admin, demoAdminPassword);
+                if (!createResult.Succeeded)
+                {
+                    throw new InvalidOperationException("Could not create the configured local demo administrator.");
+                }
+
+                await um.AddToRoleAsync(admin, "Admin");
+            }
+        }
     }
 }
 
-if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
