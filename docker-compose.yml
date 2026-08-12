@@ -1,25 +1,33 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${TASKFLOW_POSTGRES_PASSWORD:?Set TASKFLOW_POSTGRES_PASSWORD in .env}
       POSTGRES_DB: taskflow
-    ports: ["5432:5432"]
+    ports:
+      - "5432:5432"
+
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports:
+      - "6379:6379"
+
   api:
     build:
       context: .
       dockerfile: src/TaskFlow.API/Dockerfile
-    ports: ["5000:8080"]
+    ports:
+      - "5000:8080"
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskflow;Username=postgres;Password=postgres
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=taskflow;Username=postgres;Password=${TASKFLOW_POSTGRES_PASSWORD}
       ConnectionStrings__Redis: redis:6379
-      Jwt__Key: TaskFlowSuperSecretKeyThatIsAtLeast32CharactersLong!
+      Jwt__Key: ${TASKFLOW_JWT_KEY:?Set TASKFLOW_JWT_KEY in .env}
       Jwt__Issuer: TaskFlow
       Jwt__Audience: TaskFlowApp
-    depends_on: [postgres, redis]
+      DemoAdmin__Email: ${TASKFLOW_DEMO_ADMIN_EMAIL:-}
+      DemoAdmin__Password: ${TASKFLOW_DEMO_ADMIN_PASSWORD:-}
+    depends_on:
+      - postgres
+      - redis
